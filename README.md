@@ -16,6 +16,7 @@ Fantasy World RAG è un sistema che permette di interagire con personaggi fantas
 - 🤖 **Comportamento Agentico**: Agiscono autonomamente nel loro mondo
 - 📈 **Evoluzione Dinamica**: Crescono nel tempo mantenendo coerenza
 - 📱 **Multi-Piattaforma**: Accessibili da web e mobile
+- Analisi emozionale avanzata e in linea con le neuroscienze
 
 ---
 
