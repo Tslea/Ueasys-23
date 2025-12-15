@@ -1,0 +1,224 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* The Void - Deep darkness theme */
+  --void-black: #030304;
+  --void-deep: #080809;
+  --void-surface: #0f1011;
+  --void-highlight: #1a1b1d;
+  
+  /* Mystical Accents */
+  --neon-blue: #00e5ff;
+  --neon-purple: #b24dff;
+  --neon-gold: #ffb830;
+  --neon-emerald: #00ff9d;
+  --neon-rose: #ff4d6d;
+  
+  /* Fantasy Tones */
+  --fantasy-mist: rgba(180, 200, 255, 0.05);
+  --fantasy-ember: rgba(255, 120, 50, 0.08);
+  --fantasy-shadow: rgba(40, 20, 80, 0.3);
+  
+  /* Glass Effects */
+  --glass-border: rgba(255, 255, 255, 0.06);
+  --glass-bg: rgba(8, 8, 12, 0.75);
+  --glass-glow: rgba(0, 229, 255, 0.1);
+  
+  /* Typography */
+  --font-display: 'Cormorant', Georgia, serif;
+  --font-body: 'Crimson Pro', Georgia, serif;
+  --font-mono: 'JetBrains Mono', 'Consolas', monospace;
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+  
+  body {
+    @apply bg-void-black text-gray-200 antialiased;
+    font-family: var(--font-body);
+    font-weight: 400;
+    letter-spacing: 0.01em;
+    line-height: 1.7;
+  }
+  
+  /* Fantasy headings */
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-display);
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    line-height: 1.2;
+  }
+  
+  /* Code and tech elements */
+  code, pre, .font-mono {
+    font-family: var(--font-mono);
+    font-weight: 400;
+  }
+  
+  /* Custom Scrollbar for the Void */
+  ::-webkit-scrollbar {
+    width: 5px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: linear-gradient(180deg, var(--neon-purple) 0%, var(--neon-blue) 100%);
+    border-radius: 10px;
+    opacity: 0.5;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    opacity: 0.8;
+  }
+  
+  /* Selection */
+  ::selection {
+    background: var(--neon-purple);
+    color: white;
+  }
+}
+
+@layer components {
+  /* Mystical Card */
+  .mystical-card {
+    background: linear-gradient(145deg, var(--void-surface) 0%, var(--void-deep) 100%);
+    border: 1px solid var(--glass-border);
+    position: relative;
+    overflow: hidden;
+  }
+  .mystical-card::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(ellipse at top, var(--fantasy-mist), transparent 70%);
+    pointer-events: none;
+  }
+  
+  /* Rune Border Effect */
+  .rune-border {
+    position: relative;
+  }
+  .rune-border::after {
+    content: '';
+    position: absolute;
+    inset: -1px;
+    border-radius: inherit;
+    background: linear-gradient(135deg, var(--neon-gold), transparent, var(--neon-purple), transparent, var(--neon-blue));
+    opacity: 0.3;
+    z-index: -1;
+    animation: rune-pulse 4s ease-in-out infinite;
+  }
+  
+  /* Ethereal Glow Button */
+  .btn-ethereal {
+    @apply relative px-6 py-3 rounded-full overflow-hidden transition-all duration-300;
+    background: linear-gradient(135deg, rgba(178, 77, 255, 0.2), rgba(0, 229, 255, 0.2));
+    border: 1px solid rgba(255, 255, 255, 0.1);
+  }
+  .btn-ethereal:hover {
+    border-color: rgba(255, 255, 255, 0.2);
+    box-shadow: 0 0 30px rgba(178, 77, 255, 0.3), 0 0 60px rgba(0, 229, 255, 0.15);
+    transform: translateY(-2px);
+  }
+}
+
+@layer utilities {
+  /* Text Effects */
+  .text-glow {
+    text-shadow: 0 0 20px rgba(255, 255, 255, 0.3), 0 0 40px rgba(255, 255, 255, 0.1);
+  }
+  
+  .text-glow-gold {
+    text-shadow: 0 0 20px rgba(255, 184, 48, 0.5), 0 0 40px rgba(255, 184, 48, 0.2);
+  }
+  
+  .text-glow-blue {
+    text-shadow: 0 0 20px rgba(0, 229, 255, 0.5), 0 0 40px rgba(0, 229, 255, 0.2);
+  }
+  
+  .text-glow-purple {
+    text-shadow: 0 0 20px rgba(178, 77, 255, 0.5), 0 0 40px rgba(178, 77, 255, 0.2);
+  }
+  
+  /* Glass Effects */
+  .glass-panel {
+    background: var(--glass-bg);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid var(--glass-border);
+  }
+  
+  .glass-panel-glow {
+    background: var(--glass-bg);
+    backdrop-filter: blur(16px);
+    border: 1px solid var(--glass-border);
+    box-shadow: inset 0 0 40px var(--glass-glow);
+  }
+
+  /* Animation Utilities */
+  .animate-float {
+    animation: float 6s ease-in-out infinite;
+  }
+  
+  .animate-pulse-slow {
+    animation: pulse-slow 4s ease-in-out infinite;
+  }
+  
+  .animate-shimmer {
+    animation: shimmer 3s linear infinite;
+  }
+  
+  /* Hide scrollbar but keep functionality */
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  
+  /* Gradient text */
+  .gradient-text {
+    background: linear-gradient(135deg, var(--neon-gold) 0%, var(--neon-purple) 50%, var(--neon-blue) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  
+  /* Perspective for 3D effects */
+  .perspective-1000 {
+    perspective: 1000px;
+  }
+}
+
+/* Keyframe Animations */
+@keyframes float {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-12px); }
+}
+
+@keyframes pulse-slow {
+  0%, 100% { opacity: 0.5; transform: scale(1); }
+  50% { opacity: 0.8; transform: scale(1.02); }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes rune-pulse {
+  0%, 100% { opacity: 0.2; }
+  50% { opacity: 0.5; }
+}
+
+@keyframes particle-rise {
+  0% { transform: translateY(100%) scale(0); opacity: 0; }
+  50% { opacity: 1; }
+  100% { transform: translateY(-100vh) scale(1); opacity: 0; }
+}
+
