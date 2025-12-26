@@ -32,8 +32,13 @@ router = APIRouter()
 # Initialize systems
 _rag_system: Optional[RAGSystem] = None
 _character_engines: dict[str, CharacterEngine] = {}
+
+# Character cache with TTL
+# Note: This is safe for asyncio (single-threaded event loop)
+# For multi-process deployments, use Redis or similar distributed cache
 _character_cache: dict[str, tuple[Character, float]] = {}  # Cache with timestamp
 _cache_ttl = 300  # 5 minutes cache TTL
+_max_cache_size = 100  # Maximum number of characters to cache
 
 
 def get_rag_system() -> RAGSystem:
@@ -62,8 +67,14 @@ async def get_cached_character(character_id: str, session: AsyncSession) -> Opti
     )
     character = result.scalar_one_or_none()
     
-    # Cache the result
+    # Cache the result with size limit (LRU-like behavior)
     if character:
+        # If cache is full, remove oldest entry
+        if len(_character_cache) >= _max_cache_size:
+            # Remove the oldest entry (simple FIFO, good enough for this use case)
+            oldest_key = min(_character_cache.items(), key=lambda x: x[1][1])[0]
+            del _character_cache[oldest_key]
+        
         _character_cache[character_id] = (character, current_time)
     
     return character

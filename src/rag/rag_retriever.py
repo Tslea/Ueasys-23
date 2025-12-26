@@ -195,7 +195,6 @@ class RAGRetriever(LoggerMixin):
             try:
                 if self._settings.openai_api_key:
                     from openai import AsyncOpenAI
-                    from functools import lru_cache
                     
                     # Create client once and reuse
                     client = AsyncOpenAI(api_key=self._settings.openai_api_key)

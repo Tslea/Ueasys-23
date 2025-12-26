@@ -15,9 +15,13 @@ import heapq
 def benchmark(func: Callable, *args, iterations: int = 100, **kwargs) -> float:
     """Benchmark a function by running it multiple times."""
     start = time.perf_counter()
+    results = []
     for _ in range(iterations):
         result = func(*args, **kwargs)
+        results.append(result)  # Ensure the function is actually executed
     end = time.perf_counter()
+    # Use results to prevent optimization
+    _ = len(results)
     return (end - start) / iterations
 
 
