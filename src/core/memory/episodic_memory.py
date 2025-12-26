@@ -270,11 +270,10 @@ class EpisodicMemory(LoggerMixin):
         candidates.sort(key=lambda x: x[0], reverse=True)
         results = [mem for _, mem in candidates[:top_k]]
         
-        # Mark as accessed (batch operation)
-        current_access_time = datetime.now()
+        # Mark as accessed (each gets its own timestamp to avoid race conditions)
         for memory in results:
             memory.access_count += 1
-            memory.last_accessed = current_access_time
+            memory.last_accessed = datetime.now()
         
         self.logger.debug(
             "Retrieved episodic memories",

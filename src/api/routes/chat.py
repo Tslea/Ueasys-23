@@ -29,14 +29,17 @@ logger = get_logger(__name__)
 settings = get_settings()
 router = APIRouter()
 
+from collections import OrderedDict
+
+
 # Initialize systems
 _rag_system: Optional[RAGSystem] = None
 _character_engines: dict[str, CharacterEngine] = {}
 
-# Character cache with TTL
+# Character cache with TTL and LRU eviction
 # Note: This is safe for asyncio (single-threaded event loop)
 # For multi-process deployments, use Redis or similar distributed cache
-_character_cache: dict[str, tuple[Character, float]] = {}  # Cache with timestamp
+_character_cache: OrderedDict[str, tuple[Character, float]] = OrderedDict()  # LRU cache with timestamp
 _cache_ttl = 300  # 5 minutes cache TTL
 _max_cache_size = 100  # Maximum number of characters to cache
 
@@ -50,16 +53,21 @@ def get_rag_system() -> RAGSystem:
 
 
 async def get_cached_character(character_id: str, session: AsyncSession) -> Optional[Character]:
-    """Get character from cache or database."""
+    """Get character from cache or database with LRU eviction."""
     import time
     current_time = time.time()
     
     # Check cache
     if character_id in _character_cache:
         character, timestamp = _character_cache[character_id]
+        # Move to end (mark as recently used)
+        _character_cache.move_to_end(character_id)
         # Return cached if not expired
         if current_time - timestamp < _cache_ttl:
             return character
+        else:
+            # Expired, remove from cache
+            del _character_cache[character_id]
     
     # Fetch from database
     result = await session.execute(
@@ -67,13 +75,11 @@ async def get_cached_character(character_id: str, session: AsyncSession) -> Opti
     )
     character = result.scalar_one_or_none()
     
-    # Cache the result with size limit (LRU-like behavior)
+    # Cache the result with LRU eviction
     if character:
-        # If cache is full, remove oldest entry
+        # If cache is full, remove least recently used entry (FIFO from front)
         if len(_character_cache) >= _max_cache_size:
-            # Remove the oldest entry (simple FIFO, good enough for this use case)
-            oldest_key = min(_character_cache.items(), key=lambda x: x[1][1])[0]
-            del _character_cache[oldest_key]
+            _character_cache.popitem(last=False)  # Remove oldest (FIFO)
         
         _character_cache[character_id] = (character, current_time)
     

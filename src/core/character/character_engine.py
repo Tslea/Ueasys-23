@@ -413,19 +413,43 @@ class CharacterEngine(LoggerMixin):
         await self._analyze_and_update_emotion(message, context)
         
         # Retrieve relevant knowledge and memories in parallel (independent operations)
-        retrieved_knowledge, memories = await asyncio.gather(
+        results = await asyncio.gather(
             self._retrieve_knowledge(message, context),
             self._retrieve_memories(message, context),
             return_exceptions=True,
         )
         
-        # Handle exceptions from parallel retrieval
-        if isinstance(retrieved_knowledge, Exception):
-            self.logger.error("Failed to retrieve knowledge", error=str(retrieved_knowledge))
+        # Handle results and exceptions from parallel retrieval
+        retrieved_knowledge = []
+        memories = []
+        
+        if isinstance(results[0], Exception):
+            error = results[0]
+            self.logger.error(
+                "Failed to retrieve knowledge",
+                error=str(error),
+                error_type=type(error).__name__,
+            )
+            # Only mask retrieval-specific errors, re-raise critical ones
+            if isinstance(error, (SystemExit, KeyboardInterrupt)):
+                raise
             retrieved_knowledge = []
-        if isinstance(memories, Exception):
-            self.logger.error("Failed to retrieve memories", error=str(memories))
+        else:
+            retrieved_knowledge = results[0]
+            
+        if isinstance(results[1], Exception):
+            error = results[1]
+            self.logger.error(
+                "Failed to retrieve memories",
+                error=str(error),
+                error_type=type(error).__name__,
+            )
+            # Only mask retrieval-specific errors, re-raise critical ones
+            if isinstance(error, (SystemExit, KeyboardInterrupt)):
+                raise
             memories = []
+        else:
+            memories = results[1]
         
         # Generate response
         response_text, thinking = await self._generate_response(
