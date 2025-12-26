@@ -29,9 +29,19 @@ logger = get_logger(__name__)
 settings = get_settings()
 router = APIRouter()
 
+from collections import OrderedDict
+
+
 # Initialize systems
 _rag_system: Optional[RAGSystem] = None
 _character_engines: dict[str, CharacterEngine] = {}
+
+# Character cache with TTL and LRU eviction
+# Note: This is safe for asyncio (single-threaded event loop)
+# For multi-process deployments, use Redis or similar distributed cache
+_character_cache: OrderedDict[str, tuple[Character, float]] = OrderedDict()  # LRU cache with timestamp
+_cache_ttl = 300  # 5 minutes cache TTL
+_max_cache_size = 100  # Maximum number of characters to cache
 
 
 def get_rag_system() -> RAGSystem:
@@ -40,6 +50,40 @@ def get_rag_system() -> RAGSystem:
     if _rag_system is None:
         _rag_system = RAGSystem()
     return _rag_system
+
+
+async def get_cached_character(character_id: str, session: AsyncSession) -> Optional[Character]:
+    """Get character from cache or database with LRU eviction."""
+    import time
+    current_time = time.time()
+    
+    # Check cache
+    if character_id in _character_cache:
+        character, timestamp = _character_cache[character_id]
+        # Move to end (mark as recently used)
+        _character_cache.move_to_end(character_id)
+        # Return cached if not expired
+        if current_time - timestamp < _cache_ttl:
+            return character
+        else:
+            # Expired, remove from cache
+            del _character_cache[character_id]
+    
+    # Fetch from database
+    result = await session.execute(
+        select(Character).where(Character.id == character_id)
+    )
+    character = result.scalar_one_or_none()
+    
+    # Cache the result with LRU eviction
+    if character:
+        # If cache is full, remove least recently used entry (FIFO from front)
+        if len(_character_cache) >= _max_cache_size:
+            _character_cache.popitem(last=False)  # Remove oldest (FIFO)
+        
+        _character_cache[character_id] = (character, current_time)
+    
+    return character
 
 
 async def get_character_engine(character: Character) -> CharacterEngine:
@@ -194,11 +238,8 @@ async def send_message(
     Raises:
         HTTPException: If character not found
     """
-    # Get character
-    result = await session.execute(
-        select(Character).where(Character.id == data.character_id)
-    )
-    character = result.scalar_one_or_none()
+    # Get character from cache
+    character = await get_cached_character(data.character_id, session)
     
     if not character:
         raise HTTPException(status_code=404, detail="Character not found")
@@ -343,11 +384,8 @@ async def _handle_ws_message(
 ) -> None:
     """Handle a WebSocket chat message."""
     async with get_session() as session:
-        # Get character
-        result = await session.execute(
-            select(Character).where(Character.id == character_id)
-        )
-        character = result.scalar_one_or_none()
+        # Get character from cache
+        character = await get_cached_character(character_id, session)
         
         if not character:
             await manager.send_message(client_id, {
