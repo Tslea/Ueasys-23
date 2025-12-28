@@ -174,6 +174,17 @@ class Settings(BaseSettings):
         default="text-embedding-3-small", 
         description="OpenAI embedding model"
     )
+    
+    # Embedding provider (openai, local)
+    embedding_provider: Literal["openai", "local"] = Field(
+        default="local",
+        description="Provider for embeddings (openai requires API key, local uses sentence-transformers)"
+    )
+    local_embedding_model: str = Field(
+        default="all-MiniLM-L6-v2",
+        description="Local embedding model (sentence-transformers)"
+    )
+    
     openai_max_tokens: int = Field(default=4096, description="Max tokens for responses")
     openai_temperature: float = Field(default=0.7, description="Temperature for generation")
     
@@ -306,6 +317,29 @@ class Settings(BaseSettings):
     log_file: str | None = Field(default="logs/fantasy_world.log", description="Log file")
     
     # =========================================================================
+    # Voice Configuration (TTS/STT)
+    # =========================================================================
+    tts_enabled: bool = Field(default=False, description="Enable text-to-speech")
+    tts_provider: Literal["edge", "coqui", "chatterbox", "elevenlabs"] = Field(
+        default="edge",
+        description="TTS provider (edge=cloud, coqui/chatterbox=local, elevenlabs=cloud)"
+    )
+    stt_enabled: bool = Field(default=False, description="Enable speech-to-text")
+    stt_provider: Literal["whisper"] = Field(
+        default="whisper",
+        description="STT provider"
+    )
+    voice_device: Literal["cuda", "cpu", "auto"] = Field(
+        default="auto",
+        description="Device for voice models (auto=GPU if available)"
+    )
+    voice_clip_dir: str = Field(
+        default="data/voice_clips",
+        description="Directory containing character voice clips"
+    )
+    elevenlabs_api_key: str = Field(default="", description="ElevenLabs API key")
+    
+    # =========================================================================
     # Development Settings
     # =========================================================================
     use_mock_llm: bool = Field(default=False, description="Use mock LLM for testing")
@@ -336,8 +370,18 @@ class Settings(BaseSettings):
 
     @property
     def embedding_model(self) -> str:
-        """Alias for openai_embedding_model for backward compatibility."""
+        """Get the appropriate embedding model based on provider."""
+        if self.embedding_provider == "local":
+            return self.local_embedding_model
         return self.openai_embedding_model
+    
+    @property
+    def embedding_dimension(self) -> int:
+        """Get embedding dimension based on provider/model."""
+        if self.embedding_provider == "local":
+            # all-MiniLM-L6-v2 produces 384-dimensional embeddings
+            return 384
+        return self.vector_dimension  # 1536 for OpenAI
 
 
 @lru_cache()

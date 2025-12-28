@@ -78,13 +78,14 @@ def create_app() -> FastAPI:
         )
     
     # Include routers
-    from src.api.routes import health, characters, conversations, chat, extraction
+    from src.api.routes import health, characters, conversations, chat, extraction, voice
     
     app.include_router(health.router, tags=["Health"])
     app.include_router(characters.router, prefix="/api/v1/characters", tags=["Characters"])
     app.include_router(conversations.router, prefix="/api/v1/conversations", tags=["Conversations"])
     app.include_router(chat.router, prefix="/api/v1/chat", tags=["Chat"])
     app.include_router(extraction.router, prefix="/api", tags=["Extraction"])
+    app.include_router(voice.router, prefix="/api/v1/voice", tags=["Voice"])
     
     logger.info(
         "FastAPI application created",

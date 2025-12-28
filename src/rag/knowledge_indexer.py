@@ -153,15 +153,31 @@ class KnowledgeIndexer(LoggerMixin):
                 )
                 raise
     
+    def _is_openai_configured(self) -> bool:
+        """Check if OpenAI API key is properly configured."""
+        key = self._settings.openai_api_key
+        return bool(key and key not in ["", "sk-your-openai-api-key", "sk-your-api-key"])
+    
     async def _ensure_embedder(self) -> None:
         """Ensure embedding function is initialized."""
         if self._embed_function is None:
             try:
-                # Try to use OpenAI embeddings
-                if self._settings.openai_api_key:
+                # Determine which provider to use
+                use_openai = (
+                    self._settings.embedding_provider == "openai" 
+                    and self._is_openai_configured()
+                )
+                use_local = (
+                    self._settings.embedding_provider == "local"
+                    or not self._is_openai_configured()  # Fallback to local if OpenAI not configured
+                )
+                
+                if use_openai:
+                    # Use OpenAI embeddings
                     from openai import AsyncOpenAI
                     
                     client = AsyncOpenAI(api_key=self._settings.openai_api_key)
+                    self.logger.info("Using OpenAI embeddings", model=self._embedding_model)
                     
                     async def embed(texts: list[str]) -> list[list[float]]:
                         response = await client.embeddings.create(
@@ -171,31 +187,23 @@ class KnowledgeIndexer(LoggerMixin):
                         return [item.embedding for item in response.data]
                     
                     self._embed_function = embed
-                else:
-                    # Fallback to a simple mock embedder for development
-                    import hashlib
                     
-                    def mock_embed(texts: list[str]) -> list[list[float]]:
-                        embeddings = []
-                        for text in texts:
-                            # Create deterministic pseudo-embedding from text hash
-                            hash_bytes = hashlib.sha256(text.encode()).digest()
-                            embedding = [
-                                (b - 128) / 128.0
-                                for b in hash_bytes[:self._settings.embedding_dimension // 8]
-                            ] * 8
-                            # Pad/truncate to exact dimension
-                            embedding = embedding[:self._settings.embedding_dimension]
-                            while len(embedding) < self._settings.embedding_dimension:
-                                embedding.append(0.0)
-                            embeddings.append(embedding)
-                        return embeddings
+                elif use_local:
+                    # Use sentence-transformers for local embeddings (free, no API key needed)
+                    from sentence_transformers import SentenceTransformer
                     
-                    async def async_mock_embed(texts: list[str]) -> list[list[float]]:
-                        return mock_embed(texts)
+                    model = SentenceTransformer(self._settings.local_embedding_model)
+                    self.logger.info(
+                        "Using local embeddings (sentence-transformers)",
+                        model=self._settings.local_embedding_model
+                    )
                     
-                    self._embed_function = async_mock_embed
-                    self.logger.warning("Using mock embedder - set OPENAI_API_KEY for real embeddings")
+                    async def local_embed(texts: list[str]) -> list[list[float]]:
+                        embeddings = model.encode(texts, convert_to_numpy=True)
+                        return [emb.tolist() for emb in embeddings]
+                    
+                    self._embed_function = local_embed
+                    
             except Exception as e:
                 self.logger.error("Failed to initialize embedder", error=str(e))
                 raise

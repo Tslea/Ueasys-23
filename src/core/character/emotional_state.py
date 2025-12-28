@@ -67,6 +67,7 @@ class Emotion(str, Enum):
     WEARINESS = "weariness"
     HOPE = "hope"
     DESPAIR = "despair"
+    SERENITY = "serenity"
 
 
 class EmotionInstance(BaseModel):

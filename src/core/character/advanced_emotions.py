@@ -563,6 +563,11 @@ class AdvancedEmotionalState(BaseModel):
         Perform cognitive appraisal of a message.
         
         Analyzes text to determine relevance, implications, and coping potential.
+        
+        Implements NEGATIVITY BIAS (Baumeister et al., 2001):
+        - Negative stimuli are processed more thoroughly
+        - Negative information weighs more heavily in evaluations
+        - "Bad is stronger than good"
         """
         message_lower = message.lower()
         
@@ -578,13 +583,28 @@ class AdvancedEmotionalState(BaseModel):
                 
                 # Apply appraisal effects weighted by match count
                 weight = min(1.0, matches * 0.3)
+                
+                # NEGATIVITY BIAS: Negative patterns have ~2x more impact
+                # Based on Baumeister's "bad is stronger than good" principle
+                is_negative_pattern = any(
+                    pattern.appraisal_effects.get(k, 0) < -0.3 
+                    for k in ['pleasantness', 'goal_conduciveness']
+                )
+                if is_negative_pattern:
+                    weight *= 1.8  # Negativity amplification factor
+                
                 for dim, effect in pattern.appraisal_effects.items():
                     current = getattr(appraisal, dim)
                     setattr(appraisal, dim, current + effect * weight)
                 
-                # Activate affective system
+                # Activate affective system (negative systems activate more strongly)
                 if pattern.system_activation:
-                    self._activate_system(pattern.system_activation, weight * 0.5)
+                    system_weight = weight * 0.5
+                    if pattern.system_activation in [AffectiveSystem.RAGE, 
+                                                      AffectiveSystem.FEAR, 
+                                                      AffectiveSystem.PANIC_GRIEF]:
+                        system_weight *= 1.5  # Negative systems activate faster
+                    self._activate_system(pattern.system_activation, system_weight)
         
         # Clamp all values to valid range
         for field_name in ['novelty', 'pleasantness', 'goal_relevance', 'goal_conduciveness',
@@ -608,6 +628,16 @@ class AdvancedEmotionalState(BaseModel):
         Update core affect based on appraisal result.
         
         Integrates appraisal into the dimensional affect space.
+        
+        Implements realistic psychological principles:
+        
+        1. EMOTIONAL CONTAMINATION (Forgas, 1995):
+           - Negative states "contaminate" and suppress positive processing
+           - When already negative, harder to shift to positive
+        
+        2. ASYMMETRIC TRANSITIONS (Larsen & Prizmic, 2008):
+           - Easier to go from positive → negative
+           - Harder to go from negative → positive
         """
         # Get target affect from appraisal
         target = appraisal.to_dimensions()
@@ -637,10 +667,22 @@ class AdvancedEmotionalState(BaseModel):
         # Blend appraisal and system influences
         combined_target = target.blend(system_influence, 0.4)
         
-        # Apply with inertia (emotional momentum)
+        # EMOTIONAL CONTAMINATION: If currently negative, resist positive shifts
+        # This models how negative moods make it harder to feel positive
+        transition_resistance = 1 - self.emotional_inertia
+        
+        if self.current_affect.valence < -0.3 and combined_target.valence > 0:
+            # Currently negative, trying to go positive: high resistance
+            # Requires stronger positive stimulus to overcome negativity
+            transition_resistance *= 0.4  # 60% harder to shift positive
+        elif self.current_affect.valence > 0.3 and combined_target.valence < 0:
+            # Currently positive, going negative: low resistance (easy transition)
+            transition_resistance *= 1.3  # 30% easier to shift negative
+        
+        # Apply with adjusted inertia (use transition_resistance instead of fixed inertia)
         self.current_affect = self.current_affect.blend(
             combined_target, 
-            1 - self.emotional_inertia
+            min(1.0, transition_resistance)  # Cap at 1.0
         )
         
         # Record in history
@@ -650,23 +692,40 @@ class AdvancedEmotionalState(BaseModel):
         """
         Apply homeostatic decay - emotions return toward baseline.
         
-        Based on allostasis theory - the brain tries to maintain
-        a predictable internal state.
+        Based on REALISTIC psychological research:
         
-        Note: Positive emotions decay slower than negative ones,
-        reflecting the broaden-and-build theory (Fredrickson).
+        1. NEGATIVITY BIAS (Baumeister et al., 2001):
+           - Negative emotions are more "sticky" and decay SLOWER
+           - Positive emotions are more fragile and decay FASTER
+           - Ratio: ~2:1 (negative takes ~2x longer to fade)
+        
+        2. EMOTIONAL RECOVERY (Davidson, 2000):
+           - High arousal negative states (fear, anger) persist longer
+           - Recovery time varies by individual (emotional resilience)
+        
+        3. HEDONIC ADAPTATION (Lyubomirsky, 2011):
+           - We adapt quickly to positive changes (positive emotions fade)
+           - We adapt slowly to negative changes (negative lingers)
         """
         now = datetime.now()
         if seconds_elapsed is None:
             seconds_elapsed = (now - self.last_update).total_seconds()
         
-        # Base decay rate per minute (reduced from 0.1 to 0.05)
+        # Base decay rate per minute
         base_decay_rate = 0.05 * (seconds_elapsed / 60.0)
         
-        # Positive emotions decay slower (broaden-and-build theory)
-        if self.current_affect.valence > 0:
-            decay_rate = base_decay_rate * 0.6  # 40% slower decay for positive
+        # REALISTIC DECAY: Negative emotions decay SLOWER than positive
+        # This reflects the negativity bias in human psychology
+        if self.current_affect.valence < -0.2:
+            # Negative emotions: slower decay (they "stick")
+            # High arousal negative (fear, anger) decays even slower
+            arousal_factor = 1.0 + max(0, self.current_affect.arousal) * 0.5
+            decay_rate = base_decay_rate * 0.4 / arousal_factor  # 60% slower base
+        elif self.current_affect.valence > 0.2:
+            # Positive emotions: faster decay (hedonic adaptation)
+            decay_rate = base_decay_rate * 1.5  # 50% faster decay
         else:
+            # Neutral zone: normal decay
             decay_rate = base_decay_rate
         
         # Decay affect toward baseline
@@ -675,12 +734,17 @@ class AdvancedEmotionalState(BaseModel):
             rate=decay_rate
         )
         
-        # Decay system activations (also slower for positive systems)
+        # Decay system activations (negative systems persist longer)
         for system in self.system_activations:
-            if system in ['play', 'care', 'seeking']:
-                self.system_activations[system] *= (1 - decay_rate * 0.7)
-            else:
+            if system in ['rage', 'fear', 'panic_grief']:
+                # Negative systems decay 50% slower
+                self.system_activations[system] *= (1 - decay_rate * 0.5)
+            elif system in ['play', 'care']:
+                # Positive nurturing systems decay at normal rate
                 self.system_activations[system] *= (1 - decay_rate)
+            else:
+                # Seeking is neutral-positive, decays normally
+                self.system_activations[system] *= (1 - decay_rate * 0.8)
         
         self.last_update = now
     

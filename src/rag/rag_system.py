@@ -240,7 +240,7 @@ class RAGSystem(LoggerMixin):
             )
             # Convert RetrievalContext results to simple dict format
             results = []
-            for chunk in context.chunks:
+            for chunk in context.results:
                 results.append({
                     "content": chunk.content,
                     "metadata": chunk.metadata,

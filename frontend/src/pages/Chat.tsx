@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { ArrowLeft, Send, Mic, Sparkles, MessageCircle, Brain } from 'lucide-react'
+import { ArrowLeft, Send, Mic, Sparkles, MessageCircle, Brain, Volume2, MessageSquare } from 'lucide-react'
 import { useCharacterStore, useChatStore } from '@/stores'
 import DialogueStream from '@/components/immersive/DialogueStream'
 import PresenceAvatar from '@/components/immersive/PresenceAvatar'
 import { EmotionIndicator } from '@/components/chat/EmotionIndicator'
 import { AdvancedSoulState, SoulStateCompact } from '@/components/chat/AdvancedSoulState'
+import VoiceMode from '@/components/chat/VoiceMode'
 
 // Welcome message component
 const WelcomeMessage = ({ characterName, archetype }: { characterName: string; archetype?: string }) => {
@@ -105,6 +106,7 @@ export default function ChatPage() {
   
   const [inputValue, setInputValue] = useState('')
   const [isFocused, setIsFocused] = useState(false)
+  const [isVoiceMode, setIsVoiceMode] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -217,6 +219,24 @@ export default function ChatPage() {
               </motion.div>
             )}
           </AnimatePresence>
+          
+          {/* Voice/Text Mode Toggle */}
+          <motion.button
+            whileTap={{ scale: 0.95 }}
+            onClick={() => setIsVoiceMode(!isVoiceMode)}
+            className={`p-2.5 rounded-full glass-panel transition-all ${
+              isVoiceMode 
+                ? 'border-neon-purple/50 bg-neon-purple/20' 
+                : 'border-white/10 hover:border-white/20'
+            }`}
+            title={isVoiceMode ? 'Switch to text mode' : 'Switch to voice mode'}
+          >
+            {isVoiceMode ? (
+              <MessageSquare className="w-5 h-5 text-neon-purple" />
+            ) : (
+              <Volume2 className="w-5 h-5 text-white/60" />
+            )}
+          </motion.button>
         </div>
       </motion.div>
 
@@ -247,39 +267,63 @@ export default function ChatPage() {
         {/* Gradient overlay for readability */}
         <div className="absolute inset-0 bg-gradient-to-t from-void-black via-void-black/90 to-transparent pointer-events-none" />
         
-        {/* Messages or Welcome */}
-        <div className="relative z-10 flex-1 min-h-0 overflow-hidden">
-          <AnimatePresence mode="wait">
-            {!hasMessages ? (
-              <WelcomeMessage 
-                key="welcome"
-                characterName={selectedCharacter.name} 
-                archetype={selectedCharacter.archetype}
+        {/* Voice Mode */}
+        <AnimatePresence mode="wait">
+          {isVoiceMode ? (
+            <motion.div
+              key="voice-mode"
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="relative z-10 flex-1 flex items-center justify-center"
+            >
+              <VoiceMode
+                characterId={selectedCharacter.id}
+                characterName={selectedCharacter.name}
+                onTextFallback={() => setIsVoiceMode(false)}
               />
-            ) : (
-              <motion.div
-                key="messages"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                className="h-full overflow-y-auto"
-              >
-                <DialogueStream 
-                  messages={activeSession?.messages || []} 
-                  isTyping={isTyping} 
-                />
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
+            </motion.div>
+          ) : (
+            <>
+              {/* Messages or Welcome */}
+              <div className="relative z-10 flex-1 min-h-0 overflow-hidden">
+                <AnimatePresence mode="wait">
+                  {!hasMessages ? (
+                    <WelcomeMessage 
+                      key="welcome"
+                      characterName={selectedCharacter.name} 
+                      archetype={selectedCharacter.archetype}
+                    />
+                  ) : (
+                    <motion.div
+                      key="messages"
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      className="h-full overflow-y-auto"
+                    >
+                      <DialogueStream 
+                        messages={activeSession?.messages || []} 
+                        isTyping={isTyping} 
+                      />
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            </>
+          )}
+        </AnimatePresence>
       </div>
 
-      {/* Input Area (Bottom Fixed) */}
-      <motion.div 
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.3 }}
-        className="absolute bottom-0 left-0 w-full p-4 md:p-6 z-50"
-      >
+      {/* Input Area (Bottom Fixed) - Only show in text mode */}
+      <AnimatePresence>
+        {!isVoiceMode && (
+          <motion.div 
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 20 }}
+            transition={{ delay: 0.3 }}
+            className="absolute bottom-0 left-0 w-full p-4 md:p-6 z-50"
+          >
         {/* Gradient fade above input */}
         <div className="absolute inset-x-0 bottom-full h-20 bg-gradient-to-t from-void-black to-transparent pointer-events-none" />
         
@@ -347,6 +391,8 @@ export default function ChatPage() {
           </AnimatePresence>
         </div>
       </motion.div>
+        )}
+      </AnimatePresence>
     </motion.div>
   )
 }

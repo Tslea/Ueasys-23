@@ -1,4 +1,4 @@
-# Ueasys
+# 🏰 Fantasy World RAG - Living Character System
 
 > Un sistema avanzato di personaggi fantasy viventi basato su RAG (Retrieval-Augmented Generation)
 
@@ -16,7 +16,6 @@ Fantasy World RAG è un sistema che permette di interagire con personaggi fantas
 - 🤖 **Comportamento Agentico**: Agiscono autonomamente nel loro mondo
 - 📈 **Evoluzione Dinamica**: Crescono nel tempo mantenendo coerenza
 - 📱 **Multi-Piattaforma**: Accessibili da web e mobile
-- Analisi emozionale avanzata e in linea con le neuroscienze
 
 ---
 

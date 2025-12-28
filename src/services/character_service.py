@@ -54,6 +54,22 @@ class CharacterService(LoggerMixin):
         
         self.logger.info("Initialized CharacterService")
     
+    def clear_engine_cache(self, character_id: Optional[str] = None) -> None:
+        """
+        Clear the engine cache to force recreation with updated code.
+        
+        Args:
+            character_id: Specific character to clear, or all if None
+        """
+        if character_id:
+            if character_id in self._engine_cache:
+                del self._engine_cache[character_id]
+                self.logger.info("Cleared engine cache", character_id=character_id)
+        else:
+            count = len(self._engine_cache)
+            self._engine_cache.clear()
+            self.logger.info("Cleared all engine cache", count=count)
+    
     async def create_character(
         self,
         name: str,
@@ -187,7 +203,16 @@ class CharacterService(LoggerMixin):
         """
         # Check cache
         if use_cache and character_id in self._engine_cache:
-            return self._engine_cache[character_id]
+            cached_engine = self._engine_cache[character_id]
+            # Invalidate cache if engine lacks memory system (old version)
+            if cached_engine._memory_system is None:
+                self.logger.info(
+                    "Invalidating cached engine without memory system",
+                    character_id=character_id,
+                )
+                del self._engine_cache[character_id]
+            else:
+                return cached_engine
         
         # Load character
         character = await self.get_character(character_id)
@@ -199,6 +224,38 @@ class CharacterService(LoggerMixin):
         
         # Create engine
         engine = CharacterEngine(personality=personality)
+        
+        # Initialize memory system for episodic/semantic memory
+        from src.core.memory import MemoryManager
+        memory_manager = MemoryManager(character_id=character_id)
+        engine.set_memory_system(memory_manager)
+        
+        # Verify memory system was set
+        self.logger.debug(
+            "Memory system set",
+            memory_system_type=type(engine._memory_system).__name__,
+            is_none=engine._memory_system is None,
+        )
+        
+        # Set RAG system for knowledge retrieval
+        engine.set_rag_system(self._rag)
+        
+        # Set LLM provider
+        try:
+            from src.llm import get_chat_llm
+            llm = get_chat_llm()
+            engine.set_llm_provider(llm)
+        except Exception as e:
+            self.logger.warning("Could not set LLM provider", error=str(e))
+        
+        self.logger.info(
+            "Initialized CharacterEngine with memory",
+            character_id=character_id,
+            engine_id=id(engine),
+            has_memory=engine._memory_system is not None,
+            has_rag=engine._rag_system is not None,
+            has_llm=engine._llm_provider is not None,
+        )
         
         # Cache
         if use_cache:

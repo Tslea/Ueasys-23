@@ -189,64 +189,56 @@ class RAGRetriever(LoggerMixin):
                 )
                 raise
     
+    def _is_openai_configured(self) -> bool:
+        """Check if OpenAI API key is properly configured."""
+        key = self._settings.openai_api_key
+        return bool(key and key not in ["", "sk-your-openai-api-key", "sk-your-api-key"])
+    
     async def _ensure_embedder(self) -> None:
         """Ensure embedding function is initialized."""
         if self._embed_function is None:
             try:
-                if self._settings.openai_api_key:
+                # Determine which provider to use
+                use_openai = (
+                    self._settings.embedding_provider == "openai" 
+                    and self._is_openai_configured()
+                )
+                use_local = (
+                    self._settings.embedding_provider == "local"
+                    or not self._is_openai_configured()  # Fallback to local if OpenAI not configured
+                )
+                
+                if use_openai:
                     from openai import AsyncOpenAI
                     
-                    # Create client once and reuse
                     client = AsyncOpenAI(api_key=self._settings.openai_api_key)
-                    
-                    # Cache to avoid redundant embedding calls for same text
-                    embedding_cache: dict[str, list[float]] = {}
+                    self.logger.info("Using OpenAI embeddings for retrieval", model=self._embedding_model)
                     
                     async def embed(text: str) -> list[float]:
-                        # Check cache first
-                        if text in embedding_cache:
-                            return embedding_cache[text]
-                        
                         response = await client.embeddings.create(
                             model=self._embedding_model,
                             input=[text],
                         )
-                        embedding = response.data[0].embedding
-                        
-                        # Cache the result (limit cache size to prevent memory issues)
-                        if len(embedding_cache) < 1000:
-                            embedding_cache[text] = embedding
-                        
-                        return embedding
+                        return response.data[0].embedding
                     
                     self._embed_function = embed
-                else:
-                    # Mock embedder for development
-                    import hashlib
                     
-                    # Cache mock embeddings too for consistency
-                    mock_cache: dict[str, list[float]] = {}
+                elif use_local:
+                    # Use sentence-transformers for local embeddings (free, no API key needed)
+                    from sentence_transformers import SentenceTransformer
                     
-                    async def mock_embed(text: str) -> list[float]:
-                        if text in mock_cache:
-                            return mock_cache[text]
-                        
-                        hash_bytes = hashlib.sha256(text.encode()).digest()
-                        embedding = [
-                            (b - 128) / 128.0
-                            for b in hash_bytes[:self._settings.embedding_dimension // 8]
-                        ] * 8
-                        embedding = embedding[:self._settings.embedding_dimension]
-                        while len(embedding) < self._settings.embedding_dimension:
-                            embedding.append(0.0)
-                        
-                        if len(mock_cache) < 1000:
-                            mock_cache[text] = embedding
-                        
-                        return embedding
+                    model = SentenceTransformer(self._settings.local_embedding_model)
+                    self.logger.info(
+                        "Using local embeddings for retrieval (sentence-transformers)",
+                        model=self._settings.local_embedding_model
+                    )
                     
-                    self._embed_function = mock_embed
-                    self.logger.warning("Using mock embedder for retrieval")
+                    async def local_embed(text: str) -> list[float]:
+                        embedding = model.encode([text], convert_to_numpy=True)[0]
+                        return embedding.tolist()
+                    
+                    self._embed_function = local_embed
+                    
             except Exception as e:
                 self.logger.error("Failed to initialize embedder", error=str(e))
                 raise
@@ -302,13 +294,13 @@ class RAGRetriever(LoggerMixin):
             # For multiple tiers, we need OR condition
             # Simplified: search all and filter in Python
         
-        # Search
-        search_result = self._qdrant_client.search(
+        # Search using query_points (newer Qdrant API)
+        search_result = self._qdrant_client.query_points(
             collection_name=self._collection_name,
-            query_vector=query_embedding,
+            query=query_embedding,
             query_filter=Filter(must=filter_conditions),
             limit=top_k * 2,  # Get more, then filter/rerank
-        )
+        ).points
         
         # Convert to RetrievalResult and apply weighting
         weights = self.TIER_WEIGHTS[mode]

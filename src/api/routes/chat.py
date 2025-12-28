@@ -20,28 +20,17 @@ from src.db.session import get_session_dependency, get_session
 from src.db.models.character import Character
 from src.db.models.conversation import Conversation, Message, MessageRole
 from src.core.character.character_engine import CharacterEngine, CharacterResponse as EngineResponse
-from src.core.character.personality_core import PersonalityCore, PersonalityTrait, CoreValue, Archetype, Alignment
-from src.core.character.emotional_state import EmotionalState, Emotion
 from src.rag.rag_system import RAGSystem
 from src.llm import get_chat_llm
+from src.services.character_service import CharacterService
 
 logger = get_logger(__name__)
 settings = get_settings()
 router = APIRouter()
 
-from collections import OrderedDict
-
-
 # Initialize systems
 _rag_system: Optional[RAGSystem] = None
-_character_engines: dict[str, CharacterEngine] = {}
-
-# Character cache with TTL and LRU eviction
-# Note: This is safe for asyncio (single-threaded event loop)
-# For multi-process deployments, use Redis or similar distributed cache
-_character_cache: OrderedDict[str, tuple[Character, float]] = OrderedDict()  # LRU cache with timestamp
-_cache_ttl = 300  # 5 minutes cache TTL
-_max_cache_size = 100  # Maximum number of characters to cache
+_character_service: Optional[CharacterService] = None
 
 
 def get_rag_system() -> RAGSystem:
@@ -52,110 +41,40 @@ def get_rag_system() -> RAGSystem:
     return _rag_system
 
 
-async def get_cached_character(character_id: str, session: AsyncSession) -> Optional[Character]:
-    """Get character from cache or database with LRU eviction."""
-    import time
-    current_time = time.time()
-    
-    # Check cache
-    if character_id in _character_cache:
-        character, timestamp = _character_cache[character_id]
-        # Move to end (mark as recently used)
-        _character_cache.move_to_end(character_id)
-        # Return cached if not expired
-        if current_time - timestamp < _cache_ttl:
-            return character
-        else:
-            # Expired, remove from cache
-            del _character_cache[character_id]
-    
-    # Fetch from database
-    result = await session.execute(
-        select(Character).where(Character.id == character_id)
-    )
-    character = result.scalar_one_or_none()
-    
-    # Cache the result with LRU eviction
-    if character:
-        # If cache is full, remove least recently used entry (FIFO from front)
-        if len(_character_cache) >= _max_cache_size:
-            _character_cache.popitem(last=False)  # Remove oldest (FIFO)
-        
-        _character_cache[character_id] = (character, current_time)
-    
-    return character
+# Global engine cache (persists across service recreations)
+_engine_cache: dict[str, CharacterEngine] = {}
+
+async def get_character_service(session: AsyncSession) -> CharacterService:
+    """Get or create CharacterService with session."""
+    global _character_service
+    # Create service with current session
+    _character_service = CharacterService(session=session, rag_system=get_rag_system())
+    # Share the global engine cache
+    _character_service._engine_cache = _engine_cache
+    return _character_service
 
 
-async def get_character_engine(character: Character) -> CharacterEngine:
-    """Get or create CharacterEngine for a character."""
-    if character.id not in _character_engines:
-        # Convert string traits to PersonalityTrait objects
-        trait_strings = character.personality_json.get("dominant_traits", [])
-        traits = [
-            PersonalityTrait(name=t, intensity=0.7, description=f"{character.name}'s {t}")
-            for t in trait_strings if isinstance(t, str)
-        ]
-        
-        # Convert string values to CoreValue objects
-        value_strings = character.personality_json.get("values", [])
-        values = [
-            CoreValue(name=v, priority=i+1, description=f"Core value: {v}")
-            for i, v in enumerate(value_strings) if isinstance(v, str)
-        ]
-        
-        # Map archetype string to enum
-        try:
-            archetype = Archetype(character.archetype.value.lower())
-        except ValueError:
-            archetype = Archetype.HERO
-        
-        # Map alignment string to enum
-        try:
-            alignment = Alignment(character.alignment.value.lower())
-        except ValueError:
-            alignment = Alignment.TRUE_NEUTRAL
-        
-        # Build PersonalityCore from database character
-        personality = PersonalityCore(
-            character_id=character.id,
-            name=character.name,
-            primary_archetype=archetype,
-            alignment=alignment,
-            traits=traits,
-            values=values,
-            fears=character.personality_json.get("fears", []),
-            motivations=character.personality_json.get("motivations", []),
-        )
-        
-        # Create emotional state
-        emotional_state = EmotionalState(
-            character_id=character.id,
-            baseline_mood=Emotion.NEUTRAL,
-        )
-        
-        # Create engine
-        engine = CharacterEngine(
-            personality=personality,
-            emotional_state=emotional_state,
-        )
-        
-        # Set LLM provider
+async def get_character_engine_from_service(
+    character_id: str,
+    session: AsyncSession,
+) -> Optional[CharacterEngine]:
+    """
+    Get CharacterEngine using CharacterService.
+    
+    This is the single source of truth for creating CharacterEngines.
+    """
+    service = await get_character_service(session)
+    engine = await service.get_character_engine(character_id)
+    
+    if engine and engine._llm_provider is None:
+        # Set LLM provider if not set
         try:
             llm = get_chat_llm()
             engine.set_llm_provider(llm)
         except Exception as e:
             logger.warning("Could not set LLM provider", error=str(e))
-        
-        # Set RAG system
-        try:
-            rag = get_rag_system()
-            engine.set_rag_system(rag)
-        except Exception as e:
-            logger.warning("Could not set RAG system", error=str(e))
-        
-        _character_engines[character.id] = engine
     
-    return _character_engines[character.id]
+    return engine
 
 
 # Request/Response models
@@ -238,8 +157,11 @@ async def send_message(
     Raises:
         HTTPException: If character not found
     """
-    # Get character from cache
-    character = await get_cached_character(data.character_id, session)
+    # Get character
+    result = await session.execute(
+        select(Character).where(Character.id == data.character_id)
+    )
+    character = result.scalar_one_or_none()
     
     if not character:
         raise HTTPException(status_code=404, detail="Character not found")
@@ -270,13 +192,14 @@ async def send_message(
         tokens=len(data.message) // 4,
     )
     session.add(user_message)
-    conversation.message_count += 1
+    conversation.message_count = (conversation.message_count or 0) + 1
     
     # Generate response using Character Engine
     response_data = await _generate_response(
         character=character,
         message=data.message,
         context=data.context,
+        session=session,
     )
     
     response_text = response_data["text"]
@@ -294,7 +217,7 @@ async def send_message(
         }
     )
     session.add(char_message)
-    conversation.message_count += 1
+    conversation.message_count = (conversation.message_count or 0) + 1
     
     await session.commit()
     
@@ -384,8 +307,11 @@ async def _handle_ws_message(
 ) -> None:
     """Handle a WebSocket chat message."""
     async with get_session() as session:
-        # Get character from cache
-        character = await get_cached_character(character_id, session)
+        # Get character
+        result = await session.execute(
+            select(Character).where(Character.id == character_id)
+        )
+        character = result.scalar_one_or_none()
         
         if not character:
             await manager.send_message(client_id, {
@@ -406,6 +332,7 @@ async def _handle_ws_message(
             character=character,
             message=content,
             context={},
+            session=session,
         )
         
         # Send response with Character Engine data (including advanced emotions)
@@ -436,6 +363,7 @@ async def _generate_response(
     character: Character,
     message: str,
     context: dict[str, Any],
+    session: AsyncSession,
 ) -> dict[str, Any]:
     """
     Generate a character response using Character Engine + RAG.
@@ -444,8 +372,12 @@ async def _generate_response(
         Dict with response text and Character Engine data
     """
     try:
-        # Get or create CharacterEngine for this character
-        engine = await get_character_engine(character)
+        # Get CharacterEngine using CharacterService (single source of truth)
+        engine = await get_character_engine_from_service(character.id, session)
+        
+        if not engine:
+            logger.error("Could not create CharacterEngine", character_id=character.id)
+            return await _generate_fallback_response(character, message)
         
         # Process message through Character Engine
         response = await engine.process_message(
